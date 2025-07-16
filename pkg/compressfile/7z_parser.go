@@ -49,5 +49,5 @@ func (p *SevenZFileParser) Parse(filePath string) ([]byte, error) {
 func init() {
 	internal.RegisterParser(internal.FileType7Z, &SevenZFileParser{})
 	// go-unarr不支持rar v5格式
-	//internal.RegisterParser(internal.FileTypeRAR, &SevenZFileParser{})
+	internal.RegisterParser(internal.FileTypeRAR, &SevenZFileParser{})
 }

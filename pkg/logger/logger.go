@@ -14,7 +14,7 @@ type StdLogger interface {
 
 var (
 	// Logger 用于记录常规日志，默认丢弃所有日志
-	Logger StdLogger = log.New(io.Discard, "[CompressFile] ", log.LstdFlags)
+	Logger StdLogger = log.New(io.Discard, "[Fextra] ", log.LstdFlags)
 
 	// DebugLogger 用于记录调试日志，默认使用Logger
 	DebugLogger StdLogger = &debugLogger{}

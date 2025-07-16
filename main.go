@@ -3,12 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 
 	"fextra/internal"
 	_ "fextra/pkg/compressfile"
 	"fextra/pkg/logger"
+	_ "fextra/pkg/office"
 )
 
 var (
@@ -28,7 +30,8 @@ func main() {
 	// 启用常规日志输出到控制台
 	logger.SetLogger(log.New(os.Stdout, "[Fextra Logger] ", log.LstdFlags))
 	// 启用调试日志
-	logger.SetDebugLogger(log.New(os.Stdout, "[Fextra Logger Debug] ", log.LstdFlags))
+	logger.DebugLogger = log.New(io.Discard, "", 0)
+	//logger.SetDebugLogger(log.New(os.Stdout, "[Fextra Logger Debug] ", log.LstdFlags))
 
 	if FileType == 0 {
 		// 动态获取文件类型
