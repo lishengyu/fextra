@@ -50,5 +50,6 @@ func main() {
 		return
 	}
 
-	fmt.Printf("file[%s], size[%d], content:%s\n", InputFile, len(text), string(text))
+	fmt.Printf("file[%s], size[%d]\n", InputFile, len(text))
+	//fmt.Printf("file[%s], size[%d], content:\n%s\n", InputFile, len(text), string(text))
 }
