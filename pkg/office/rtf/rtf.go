@@ -2,6 +2,7 @@ package rtf
 
 import (
 	"fextra/pkg/logger"
+	"fextra/pkg/search/trie"
 	"fmt"
 	"io"
 	"os"
@@ -138,52 +139,57 @@ type groupInfo struct {
 }
 
 var (
-	StyleGroupMap = map[string]struct{}{
-		"fonttbl":    {},
-		"colortbl":   {},
-		"styltbl":    {},
-		"listtbl":    {},
-		"pict":       {},
-		"table":      {},
-		"info":       {},
-		"revtbl":     {},
-		"stylesheet": {},
-		"filetable":  {},
-		"parfmt":     {},
-		"listlevel":  {},
-		"pagetbl":    {},
-		"shppict":    {},
-		"nonshppict": {},
-		"field":      {},
-		"formfield":  {},
-		"listtable":  {},
-		"pgptbl":     {},
-		"rsidtable":  {},
-		"author":     {},
-		"operator":   {},
-		"themedata":  {}, //非rtf规范，文档主题数据区域，用于存储文档的主题信息。
-		"datastore":  {}, //非rtf规范，文档数据存储区域，用于存储文档的元数据、自定义属性等信息。
-		"objdata":    {}, //非rtf规范，文档对象数据区域，用于存储文档的对象信息。
-		"lsdlocked0": {}, //非rtf规范，Word样式锁定控制字
-		"xmlnstbl":   {}, //非rtf规范，XML命名空间表，用于存储文档的XML命名空间信息。
-		"ud":         {},
-		"upr":        {},
-		"xe":         {},
-		"urtfN":      {},
-		"userprops":  {},
-		"vern":       {},
-		"version":    {},
-		"ts":         {},
-		"tsrowd":     {},
-		"tscell":     {},
-		"wbitmap":    {},
-		"wmetafile":  {},
+	StyleFilter = []string{
+		"fonttbl",
+		"colortbl",
+		"styltbl",
+		"listtbl",
+		"pict",
+		"table",
+		"info",
+		"revtbl",
+		"stylesheet",
+		"filetable",
+		"parfmt",
+		"listlevel",
+		"pagetbl",
+		"shppict",
+		"nonshppict",
+		"field",
+		"formfield",
+		"listtable",
+		"pgptbl",
+		"rsidtable",
+		"author",
+		"operator",
+		"themedata",  //非rtf规范，文档主题数据区域，用于存储文档的主题信息。
+		"datastore",  //非rtf规范，文档数据存储区域，用于存储文档的元数据、自定义属性等信息。
+		"objdata",    //非rtf规范，文档对象数据区域，用于存储文档的对象信息。
+		"lsdlocked0", //非rtf规范，Word样式锁定控制字
+		"xmlnstbl",   //非rtf规范，XML命名空间表，用于存储文档的XML命名空间信息。
+		"ud",
+		"upr",
+		"xe",
+		"urtfN",
+		"userprops",
+		"vern",
+		"version",
+		"ts",
+		"tsrowd",
+		"tscell",
+		"wbitmap",
+		"wmetafile",
 	}
 )
 
+var Pm *trie.PrefixMatcher
+
+func init() {
+	Pm = trie.NewPrefixMatcher(StyleFilter)
+}
+
 func checkStyleGroup(control string) bool {
-	_, ok := StyleGroupMap[control]
-	return ok
+	return Pm.HasPrefix(control)
 }
 
 // processChar 处理单个字符并更新解析状态
