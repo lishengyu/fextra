@@ -14,24 +14,35 @@ import (
 )
 
 var (
-	InputFile string
-	FileType  int
+	InputFile     string
+	FileType      int
+	Verbose       bool
+	DetailVerbose bool
 )
 
 func main() {
 	flag.StringVar(&InputFile, "i", "", "input file")
 	flag.IntVar(&FileType, "t", 0, "file type")
+	flag.BoolVar(&Verbose, "v", false, "verbose")
+	flag.BoolVar(&DetailVerbose, "vv", false, "detail verbose")
+
 	flag.Parse()
 	if InputFile == "" {
 		flag.Usage()
 		return
 	}
 
-	// 启用常规日志输出到控制台
-	logger.SetLogger(log.New(os.Stdout, "[Fextra Logger] ", log.LstdFlags))
-	// 启用调试日志
-	logger.DebugLogger = log.New(io.Discard, "", 0)
-	//logger.SetDebugLogger(log.New(os.Stdout, "[Fextra Logger Debug] ", log.LstdFlags))
+	if DetailVerbose {
+		// 启用常规日志输出到控制台
+		logger.SetLogger(log.New(os.Stdout, "[Fextra Logger] ", log.LstdFlags))
+		// 启用调试日志
+		logger.SetDebugLogger(log.New(os.Stdout, "[Fextra Logger Debug] ", log.LstdFlags))
+	} else if Verbose {
+		// 启用常规日志输出到控制台
+		logger.SetLogger(log.New(os.Stdout, "[Fextra Logger] ", log.LstdFlags))
+		// 启用调试日志
+		logger.DebugLogger = log.New(io.Discard, "", 0)
+	}
 
 	if FileType == 0 {
 		// 动态获取文件类型
@@ -50,6 +61,6 @@ func main() {
 		return
 	}
 
+	logger.Logger.Printf("content:\n%s\n", string(text))
 	fmt.Printf("file[%s], size[%d]\n", InputFile, len(text))
-	//fmt.Printf("file[%s], size[%d], content:\n%s\n", InputFile, len(text), string(text))
 }
