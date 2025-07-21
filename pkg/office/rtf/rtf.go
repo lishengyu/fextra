@@ -139,6 +139,8 @@ type groupInfo struct {
 }
 
 var (
+	// todo: fixme later
+	// 当前这部分配置可以通过外部文件加载开放出来，后期可以根据需要调整
 	StyleFilter = []string{
 		"fonttbl",
 		"colortbl",
@@ -162,11 +164,11 @@ var (
 		"rsidtable",
 		"author",
 		"operator",
-		"themedata",  //非rtf规范，文档主题数据区域，用于存储文档的主题信息。
-		"datastore",  //非rtf规范，文档数据存储区域，用于存储文档的元数据、自定义属性等信息。
-		"objdata",    //非rtf规范，文档对象数据区域，用于存储文档的对象信息。
-		"lsdlocked0", //非rtf规范，Word样式锁定控制字
-		"xmlnstbl",   //非rtf规范，XML命名空间表，用于存储文档的XML命名空间信息。
+		"themedata", //非rtf规范，文档主题数据区域，用于存储文档的主题信息。
+		"datastore", //非rtf规范，文档数据存储区域，用于存储文档的元数据、自定义属性等信息。
+		"objdata",   //非rtf规范，文档对象数据区域，用于存储文档的对象信息。
+		"lsdlocked", //非rtf规范，Word样式锁定控制字
+		"xmlnstbl",  //非rtf规范，XML命名空间表，用于存储文档的XML命名空间信息。
 		"ud",
 		"upr",
 		"xe",
