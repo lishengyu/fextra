@@ -82,7 +82,7 @@ func parseGzFromReader(reader io.Reader, filename string) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	content, files, err := walkDir(tmpDir)
+	content, files, err := WalkDir(tmpDir)
 	if err != nil {
 		return content, err
 	}

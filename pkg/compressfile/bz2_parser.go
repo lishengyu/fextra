@@ -65,7 +65,7 @@ func parseBz2FromReader(reader io.Reader, filename string) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	content, cnt, err := walkDir(tmpDir)
+	content, cnt, err := WalkDir(tmpDir)
 	if err != nil {
 		return content, err
 	}

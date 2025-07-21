@@ -37,7 +37,7 @@ func (p *SevenZFileParser) Parse(filePath string) ([]byte, error) {
 	logger.Logger.Printf("7z文件提取完成，共提取 %d 个文件", len(files))
 
 	// 遍历临时目录并提取所有文件内容
-	content, cnt, err := walkDir(tmpDir)
+	content, cnt, err := WalkDir(tmpDir)
 	if err != nil {
 		return content, err
 	}

@@ -63,7 +63,7 @@ func WriteDstFile(rc io.ReadCloser, safePath string, mode fs.FileMode) error {
 	return nil
 }
 
-func walkDir(tmpDir string) ([]byte, int, error) {
+func WalkDir(tmpDir string) ([]byte, int, error) {
 	var buffer bytes.Buffer
 	var fileCnt int
 

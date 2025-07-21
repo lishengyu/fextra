@@ -89,7 +89,7 @@ func parseTarFromReader(reader io.Reader) ([]byte, error) {
 		logger.Logger.Printf("提取文件: %s", strings.TrimPrefix(targetPath, tmpDir))
 	}
 
-	content, files, err := walkDir(tmpDir)
+	content, files, err := WalkDir(tmpDir)
 	if err != nil {
 		return content, err
 	}

@@ -61,7 +61,7 @@ func (p *ZipFileParser) Parse(filePath string) ([]byte, error) {
 		rc.Close()
 	}
 
-	content, files, err := walkDir(tmpDir)
+	content, files, err := WalkDir(tmpDir)
 	if err != nil {
 		return content, err
 	}
