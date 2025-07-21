@@ -12,6 +12,7 @@ const (
 	FileTypeXML   = 3
 	FileTypeJSON  = 4
 	FileTypeCSV   = 5
+	FileTypeMD    = 6
 	FileTypeDOC   = 7
 	FileTypeDOCX  = 8
 	FileTypeXLS   = 9

@@ -11,6 +11,7 @@ import (
 	_ "fextra/pkg/compressfile"
 	"fextra/pkg/logger"
 	_ "fextra/pkg/office"
+	_ "fextra/pkg/plaintext"
 )
 
 var (
