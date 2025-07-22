@@ -1,0 +1,420 @@
+package xls
+
+import (
+	"bytes"
+	"encoding/binary"
+	"encoding/hex"
+	"fextra/pkg/logger"
+	"fmt"
+	"io"
+	"os"
+	"regexp"
+	"strings"
+
+	"github.com/richardlehane/mscfb"
+	"golang.org/x/text/encoding/unicode"
+)
+
+type OfficeXlsParser struct{}
+
+var (
+	invisibleCharsRegex *regexp.Regexp
+)
+
+func init() {
+	invisibleCharsRegex = regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x{200B}\x{200C}\x{200D}\x{200E}\x{200F}\x{2028}\x{2029}\x{FEFF}]`)
+}
+
+// ExtractText 使用原生CFB解析和BIFF解析提取XLS文件文本内容
+func ExtractText(filePath string) ([]byte, error) {
+	// 打开文件
+	file, err := os.Open(filePath)
+	if err != nil {
+		return []byte{}, fmt.Errorf("无法打开文件: %w", err)
+	}
+	defer file.Close()
+
+	// 解析CFB格式
+	doc, err := mscfb.New(file)
+	if err != nil {
+		return []byte{}, fmt.Errorf("无法解析CFB文件: %w", err)
+	}
+
+	var result bytes.Buffer
+	worksheetCount := 0
+
+	logger.Logger.Printf("开始解析XLS文件 %s", filePath)
+	// 遍历CFB中的所有流
+	for entry, err := doc.Next(); err == nil; entry, err = doc.Next() {
+		fi := entry.FileInfo()
+		streamName := fi.Name()
+		// 检查是否为工作表流
+		logger.Logger.Printf("当前流: %s, 是否路径：%v", streamName, fi.IsDir())
+		if strings.Contains(strings.ToLower(streamName), "workbook") && !fi.IsDir() {
+			worksheetCount++
+			// 创建缓冲区
+			buf := make([]byte, entry.Size)
+
+			// 使用Read方法读取完整流数据
+			n, err := entry.Read(buf)
+			if err != nil && err != io.EOF {
+				logger.Logger.Printf("读取流 %s 失败: %w", streamName, err)
+				continue
+			}
+
+			logger.DebugLogger.Printf("读取流 %s 成功: 长度 %d, 内容: %v", streamName, n, hex.EncodeToString(buf[:n]))
+			// 读取流内容并解析BIFF格式
+			extractBIFFData(buf[:n], &result)
+
+			// 工作表间添加分隔符
+			result.WriteString("\n---\n\n")
+		}
+	}
+
+	/*
+		if err != nil {
+			return []byte{}, fmt.Errorf("遍历CFB文件错误: %w", err)
+		}
+	*/
+
+	if worksheetCount == 0 {
+		result.WriteString("未找到工作表数据\n")
+	}
+
+	return result.Bytes(), nil
+}
+
+// 验证BOF记录
+func validateBOFRecord(reader *bytes.Reader) error {
+	var bofRecType uint16
+	var bofRecLen uint16
+
+	// 读取BOF记录类型
+	if err := binary.Read(reader, binary.LittleEndian, &bofRecType); err != nil {
+		return fmt.Errorf("无法读取BOF记录类型: %w", err)
+	}
+
+	// 读取BOF记录长度
+	if err := binary.Read(reader, binary.LittleEndian, &bofRecLen); err != nil {
+		return fmt.Errorf("无法读取BOF记录长度: %w", err)
+	}
+
+	// 验证BOF记录类型和长度
+	if bofRecType != RECORD_BOF {
+		return fmt.Errorf("无效的BOF记录: 类型=0x%04X, 长度=0x%04X", bofRecType, bofRecLen)
+	}
+
+	// 读取BOF内容
+	bofContent := make([]byte, bofRecLen)
+	if _, err := reader.Read(bofContent); err != nil {
+		return fmt.Errorf("无法读取BOF内容: %w", err)
+	}
+
+	// 记录BOF信息
+	version := binary.LittleEndian.Uint16(bofContent[:2])
+	docType := binary.LittleEndian.Uint16(bofContent[2:4])
+	logger.DebugLogger.Printf("BOF记录验证通过: 版本=0x%04X, 文档类型=0x%04X", version, docType)
+	return nil
+}
+
+// 解析BIFF格式数据并提取文本内容
+// BIFF记录类型宏定义
+const (
+	RECORD_BOF = 0x0809
+	// 行记录 - 根据MS-XLS规范确认正确类型为0x0208
+	RECORD_ROW uint16 = 0x0208
+	// 指定包含字符串的单元格
+	RECORD_LABELSET = 0x00FD
+	// 字符串单元格记录
+	RECORD_LABEL uint16 = 0x0204
+	// 数字单元格记录
+	RECORD_RK uint16 = 0x027E
+	// 工作表维度记录
+	RECORD_DIMENSIONS uint16 = 0x0200
+	// 共享字符串引用记录
+	RECORD_LABELSST uint16 = 0x00FD
+	// 共享字符串表记录
+	RECORD_SST uint16 = 0x00FC
+)
+
+// 工作表维度信息
+type SheetDimensions struct {
+	FirstRow uint32 // rwMic: 第一个使用的行
+	LastRow  uint32 // rwMac: 最后一个使用的行索引
+	FirstCol uint16 // colMic: 第一个使用的列
+	LastCol  uint16 // colMac: 最后一个使用的列索引
+}
+
+// 解析Dimensions记录
+func parseDimensionsRecord(reader *bytes.Reader, recLen uint16) (*SheetDimensions, error) {
+	// 读取记录内容 (根据recLen动态确定长度)
+	buf := make([]byte, recLen)
+	if _, err := reader.Read(buf); err != nil {
+		return nil, fmt.Errorf("无法读取Dimensions内容: %w", err)
+	}
+
+	// 验证记录长度 (规范要求14字节)
+	if recLen != 14 {
+		return nil, fmt.Errorf("Dimensions记录长度无效: %d字节, 预期至少16字节", recLen)
+	}
+
+	// 解析字段 (小端字节序)
+	dim := &SheetDimensions{
+		FirstRow: binary.LittleEndian.Uint32(buf[:4]),
+		LastRow:  binary.LittleEndian.Uint32(buf[4:8]),
+		FirstCol: binary.LittleEndian.Uint16(buf[8:10]),
+		LastCol:  binary.LittleEndian.Uint16(buf[10:12]),
+	}
+
+	logger.DebugLogger.Printf("解析工作表维度: 行范围[%d-%d], 列范围[%d-%d]", dim.FirstRow, dim.LastRow, dim.FirstCol, dim.LastCol)
+	return dim, nil
+}
+
+// 行记录结构定义
+type Row struct {
+	RowNum       uint16 // 行号 (rw)
+	FirstCol     uint16 // 起始列 (colLastMic)
+	LastCol      uint16 // 结束列 (colLastMac)
+	RowHeight    uint16 // 行高 (miyRw)
+	IsHidden     bool   // 是否隐藏 (fDyZero)
+	OutlineLevel uint8  // 大纲级别 (iOutlevel)
+}
+
+// 解析ROW记录
+func parseRowRecord(reader *bytes.Reader, recLen uint16) (*Row, error) {
+	// 读取记录内容
+	buf := make([]byte, recLen)
+	if _, err := reader.Read(buf); err != nil {
+		return nil, fmt.Errorf("读取行记录失败: %w", err)
+	}
+
+	// 验证最小长度 (规范要求至少12字节)   --规范中看应该是16固定字节
+	if recLen != 16 {
+		return nil, fmt.Errorf("行记录长度无效: %d字节, 预期至少16字节", recLen)
+	}
+
+	// 解析基本字段 (小端字节序)
+	row := &Row{
+		RowNum:    binary.LittleEndian.Uint16(buf[:2]),
+		FirstCol:  binary.LittleEndian.Uint16(buf[2:4]),
+		LastCol:   binary.LittleEndian.Uint16(buf[4:6]),
+		RowHeight: binary.LittleEndian.Uint16(buf[6:8]),
+	}
+
+	// 解析标志位 (第8字节的低3位)
+	flags := buf[12]
+	row.OutlineLevel = flags & 0xD0 // 低3位: 大纲级别  iOutLevel(3 bits)
+
+	row.IsHidden = (flags & 0x04) != 0 // 第2位: fDyZero (隐藏标志)
+
+	logger.DebugLogger.Printf("行记录解析: 行号=%d, 列范围=[%d-%d], 行高=%d, 隐藏=%v, 大纲级别=%d",
+		row.RowNum, row.FirstCol, row.LastCol, row.RowHeight, row.IsHidden, row.OutlineLevel)
+
+	return row, nil
+}
+
+func extractBIFFData(data []byte, result *bytes.Buffer) {
+	// BIFF解析实现
+	// 实现BIFF记录解析逻辑，处理不同类型的单元格数据
+	reader := bytes.NewReader(data)
+	var rowContent []string
+	var currentRow Row // 当前行信息
+	var dimensions *SheetDimensions
+	var sharedStrings map[uint32]string // 存储共享字符串表
+
+	// 验证BOF记录
+	if err := validateBOFRecord(reader); err != nil {
+		logger.Logger.Printf("BOF记录验证失败: %w", err)
+		return
+	}
+
+	for reader.Len() > 0 {
+		// 读取记录头 (2字节类型, 2字节长度)
+		var recType uint16
+		var recLen uint16
+		if err := binary.Read(reader, binary.LittleEndian, &recType); err != nil {
+			logger.Logger.Printf("无法读取记录类型: %w", err)
+			break
+		}
+		if err := binary.Read(reader, binary.LittleEndian, &recLen); err != nil {
+			logger.Logger.Printf("无法读取记录长度: %w", err)
+			break
+		}
+
+		logger.DebugLogger.Printf("类型 %04X %d, 长度 %d", recType, recType, recLen)
+		// 根据记录类型处理
+		switch recType {
+		case RECORD_ROW:
+			// 处理行记录
+			// 读取行高和格式信息
+			row, err := parseRowRecord(reader, recLen)
+			if err != nil {
+				logger.Logger.Printf("解析行记录失败: %w", err)
+				break
+			}
+
+			// 如果当前有未处理的行内容，先输出
+			if len(rowContent) > 0 && uint16(currentRow.RowNum) != row.RowNum {
+				result.WriteString(strings.Join(rowContent, "\t") + "\n")
+			}
+
+			// 更新当前行信息
+			currentRow = *row
+			rowContent = make([]string, 0, row.LastCol-row.FirstCol+1)
+			// 处理隐藏行
+			if row.IsHidden {
+				logger.DebugLogger.Printf("跳过隐藏行: %d", row.RowNum)
+				continue
+			}
+		case RECORD_LABEL:
+			// 处理字符串单元格
+			buf := make([]byte, recLen)
+			if _, err := reader.Read(buf); err != nil {
+				logger.Logger.Printf("读取LABEL记录失败: %w", err)
+				break
+			}
+
+			// 解析Cell结构 (6字节)
+			cellRow := binary.LittleEndian.Uint16(buf[0:2])
+			cellCol := binary.LittleEndian.Uint16(buf[2:4])
+			// ixfe := binary.LittleEndian.Uint16(buf[4:6]) // 格式索引暂不使用
+
+			// 解析XLUnicodeString结构
+			strData := buf[6:]
+			if len(strData) < 2 {
+				logger.Logger.Printf("LABEL字符串数据不完整")
+				break
+			}
+			cch := binary.LittleEndian.Uint16(strData[0:2])
+			highByte := (strData[2] >> 7) & 0x01
+			rgbStart := 3
+
+			// 验证缓冲区长度
+			var strLen int
+			if highByte == 1 {
+				strLen = int(cch) * 2
+			} else {
+				strLen = int(cch)
+			}
+
+			if rgbStart+strLen > len(strData) {
+				logger.Logger.Printf("LABEL字符串长度不足, 需要%d字节, 实际%d字节", rgbStart+strLen, len(strData))
+				break
+			}
+
+			// 提取字符串内容
+			var cellValue string
+			if highByte == 1 {
+				// 双字节Unicode
+				utf16Bytes := strData[rgbStart : rgbStart+strLen]
+				/*
+					utf16Str := make([]uint16, cch)
+					for i := 0; i < int(cch); i++ {
+						utf16Str[i] = binary.LittleEndian.Uint16(utf16Bytes[i*2 : (i+1)*2])
+					}
+				*/
+
+				decoder := unicode.UTF16(unicode.LittleEndian, unicode.UseBOM).NewDecoder()
+				cellValue, _ = decoder.String(string(utf16Bytes))
+			} else {
+				// 单字节字符
+				cellValue = string(strData[rgbStart : rgbStart+strLen])
+			}
+
+			// 根据行列号定位单元格 (简化处理)
+			logger.DebugLogger.Printf("解析单元格[%d,%d]: %s", cellRow, cellCol, cellValue)
+			rowContent = append(rowContent, cellValue)
+		case RECORD_RK:
+			// 处理数字单元格
+			// 读取并转换RK值为浮点数
+			buf := make([]byte, recLen)
+			if _, err := reader.Read(buf); err != nil {
+				logger.Logger.Printf("读取RK记录失败: %w", err)
+				break
+			}
+			// 简化处理：转换RK值
+			rkValue := binary.LittleEndian.Uint32(buf[6:10])
+			num := float64(rkValue>>2) / 10000
+			logger.DebugLogger.Printf("解析第 %d 行: %f", currentRow, num)
+			rowContent = append(rowContent, fmt.Sprintf("%.4f", num))
+		case RECORD_DIMENSIONS:
+			// 解析Dimensions记录(紧跟BOF之后的第一个记录?)
+			if dim, err := parseDimensionsRecord(reader, recLen); err != nil {
+				logger.Logger.Printf("解析Dimensions记录失败: %w", err)
+				break
+			} else {
+				dimensions = dim
+			}
+			logger.Logger.Printf("解析工作表维度: 行范围[%d-%d], 列范围[%d-%d]", dimensions.FirstRow, dimensions.LastRow, dimensions.FirstCol, dimensions.LastCol)
+		case RECORD_SST:
+			// 解析共享字符串表
+			if sharedStrings == nil {
+				sharedStrings = make(map[uint32]string)
+			}
+			// 实现SST记录解析逻辑
+			buf := make([]byte, recLen)
+			if _, err := reader.Read(buf); err != nil {
+				logger.Logger.Printf("读取SST记录失败: %w", err)
+				break
+			}
+			strLen := int(buf[6])
+			if strLen+8 <= len(buf) {
+				cellValue := string(buf[8 : 8+strLen])
+				logger.DebugLogger.Printf("解析第 %d 行: %s", currentRow, cellValue)
+				rowContent = append(rowContent, cellValue)
+			}
+		case RECORD_LABELSST:
+			// 处理共享字符串引用单元格
+			if sharedStrings == nil {
+				logger.Logger.Printf("遇到LABELSST记录但未找到SST表")
+				reader.Seek(int64(recLen), io.SeekCurrent)
+				break
+			}
+
+			buf := make([]byte, recLen)
+			if _, err := reader.Read(buf); err != nil {
+				logger.Logger.Printf("读取LABELSST记录失败: %w", err)
+				break
+			}
+
+			// 解析Cell结构 (6字节)
+			cellRow := binary.LittleEndian.Uint16(buf[0:2])
+			cellCol := binary.LittleEndian.Uint16(buf[2:4])
+			// ixfe := binary.LittleEndian.Uint16(buf[4:6]) // 格式索引暂不使用
+
+			// 解析isst字段 (4字节)
+			isst := binary.LittleEndian.Uint32(buf[6:10])
+
+			// 查找共享字符串
+			cellValue, exists := sharedStrings[isst]
+			if !exists {
+				logger.Logger.Printf("SST索引%d不存在", isst)
+				cellValue = ""
+			}
+
+			logger.DebugLogger.Printf("解析单元格[%d,%d]: SST索引=%d, 值=%s", cellRow, cellCol, isst, cellValue)
+			rowContent = append(rowContent, cellValue)
+		default:
+			// 跳过其他类型的记录
+			logger.DebugLogger.Printf("解析第 %d 行: 未知类型 %04X", currentRow, recType)
+			reader.Seek(int64(recLen), io.SeekCurrent)
+		}
+	}
+
+	// 写入最后一行
+	if len(rowContent) > 0 {
+		result.WriteString(strings.Join(rowContent, "\t") + "\n")
+	}
+}
+
+// 实现OfficeParser接口
+func (p *OfficeXlsParser) Parse(filePath string) ([]byte, error) {
+	content, err := ExtractText(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	extractedText := invisibleCharsRegex.ReplaceAllString(string(content), "")
+
+	return []byte(extractedText), nil
+}
