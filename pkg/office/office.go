@@ -11,6 +11,7 @@ import (
 	"fextra/pkg/office/rtf"
 	"fextra/pkg/office/vsd"
 	"fextra/pkg/office/vsdx"
+	"fextra/pkg/office/xls"
 	"fextra/pkg/office/xlsb"
 	"fextra/pkg/office/xlsx"
 )
@@ -21,6 +22,7 @@ func init() {
 	internal.RegisterParser(internal.FileTypePPT, &ppt.OfficePptParser{})
 	internal.RegisterParser(internal.FileTypeDOCX, &docx.OfficeDocxParser{})
 	internal.RegisterParser(internal.FileTypePPTX, &pptx.OfficePptxParser{})
+	internal.RegisterParser(internal.FileTypeXLS, &xls.OfficeXlsParser{})
 	internal.RegisterParser(internal.FileTypeXLSX, &xlsx.OfficeXlsxParser{})
 	internal.RegisterParser(internal.FileTypeRTF, &rtf.OfficeRtfParser{})
 	internal.RegisterParser(internal.FileTypeODT, &odt.OfficeOdtParser{})
