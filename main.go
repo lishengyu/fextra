@@ -58,7 +58,8 @@ func main() {
 
 	text, err := parser.Parse(InputFile)
 	if err != nil {
-		fmt.Println(err)
+		logger.Logger.Printf("content[%d]:\n%s\n", len(text), string(text))
+		fmt.Printf("文本解析失败:%v\n", err)
 		return
 	}
 
